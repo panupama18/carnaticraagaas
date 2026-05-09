@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Voice Input App</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="container">
+    <h1>Voice Input App</h1>
+    <p>Press the microphone button and speak. Your voice will be converted to text.</p>
+
+    <div class="controls">
+      <button id="startStopBtn">Start Listening</button>
+      <select id="languageSelect" aria-label="Choose recognition language">
+        <option value="te-IN">Telugu</option>
+        <option value="en-US">English</option>
+      </select>
+      <div id="status" class="status">Ready</div>
+    </div>
+
+    <div class="result-card">
+      <label for="transcript">Transcript</label>
+      <textarea id="transcript" rows="8" readonly placeholder="Recognized speech will appear here..."></textarea>
+    </div>
+
+    <div class="result-card">
+      <div class="raga-header">
+        <h2>Raga recognition</h2>
+        <button id="ragaBtn">Start Raga Detection</button>
+      </div>
+      <p class="raga-status" id="ragaStatus">Ready to detect ragas.</p>
+      <p class="raga-output" id="ragaOutput">Detected raga will appear here after you sing.</p>
+      <div class="raga-training">
+        <button id="tonicBtn">Train Tonic</button>
+        <span id="tonicInfo">Tonic not set</span>
+      </div>
+    </div>
+
+    <div class="notes">
+      <p><strong>Note:</strong> This app uses the browser Speech Recognition API. Use Chrome or Edge for best support.</p>
+      <p>Choose Telugu to recognize Telugu speech as `te-IN`.</p>
+      <p>Use <strong>Train Tonic</strong> first to calibrate your tonic pitch before starting raga detection.</p>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
