@@ -247,23 +247,31 @@ export default function App() {
     setRagaText('Detected raga will appear here after you sing.');
   };
 
+  const extractFeatures = (noteClasses) => {
+    const noteCounts = countNoteClasses(noteClasses);
+    const totalNotes = noteClasses.length;
+    const normalized = noteCounts.map((count) => count / totalNotes);
+    const bigrams = {};
+    for (let i = 0; i < noteClasses.length - 1; i += 1) {
+      const bigram = `${noteClasses[i]}-${noteClasses[i + 1]}`;
+      bigrams[bigram] = (bigrams[bigram] || 0) + 1;
+    }
+    const normalizedBigrams = Object.fromEntries(
+      Object.entries(bigrams).map(([k, v]) => [k, v / Math.max(1, noteClasses.length - 1)]),
+    );
+    return { normalized, normalizedBigrams, noteCount: totalNotes };
+  };
+
   const saveTrainedModel = (ragaName, noteClasses) => {
     if (!noteClasses.length) return;
-    const counts = countNoteClasses(noteClasses);
-    const totalNotes = noteClasses.length;
-    const normalized = counts.map((count) => count / totalNotes);
+    const features = extractFeatures(noteClasses);
     setTrainedModels((previous) => {
-      const existing = previous[ragaName];
-      const combinedTotal = existing ? existing.totalNotes + totalNotes : totalNotes;
-      const combinedCounts = counts.map((count, index) => (existing ? existing.noteCounts[index] + count : count));
-      const combinedNormalized = combinedCounts.map((count) => count / combinedTotal);
+      const existing = previous[ragaName]?.samples || [];
       const next = {
         ...previous,
         [ragaName]: {
-          noteCounts: combinedCounts,
-          totalNotes: combinedTotal,
-          sampleCount: existing ? existing.sampleCount + 1 : 1,
-          normalized: combinedNormalized,
+          samples: [...existing, features],
+          sampleCount: existing.length + 1,
         },
       };
       try {
@@ -281,30 +289,41 @@ export default function App() {
     setModelTrainingStatus('Trained model cleared.');
   };
 
+  const euclideanDistance = (a, b) => {
+    let sum = 0;
+    const maxLen = Math.max(a.length, b.length);
+    for (let i = 0; i < maxLen; i += 1) {
+      sum += ((a[i] || 0) - (b[i] || 0)) ** 2;
+    }
+    return Math.sqrt(sum);
+  };
+
   const inferTrainedRaga = (noteClasses) => {
     if (!noteClasses.length || Object.keys(trainedModels).length === 0) {
       return null;
     }
-    const noteCounts = countNoteClasses(noteClasses);
-    const totalNotes = noteClasses.length;
-    const normalized = noteCounts.map((count) => count / totalNotes);
+    const queryFeatures = extractFeatures(noteClasses);
+    const k = 3;
     let best = { name: 'Unknown', score: -Infinity, confidence: 0 };
     for (const [ragaName, model] of Object.entries(trainedModels)) {
-      const similarity = normalized.reduce(
-        (sum, value, index) => sum + Math.min(value, model.normalized[index]),
-        0,
-      );
-      const extra = noteCounts.reduce(
-        (sum, count, index) => (model.normalized[index] === 0 ? sum + count : sum),
-        0,
-      );
-      const score = similarity - extra * 0.2;
-      const confidence = Math.max(0, Math.min(100, score * 120));
-      if (score > best.score) {
-        best = { name: `${ragaName} (trained)`, score, confidence };
+      if (!model.samples || !model.samples.length) continue;
+      const distances = model.samples.map((sample) => {
+        const noteDist = euclideanDistance(queryFeatures.normalized, sample.normalized);
+        const bigramDist = euclideanDistance(
+          Object.values(queryFeatures.normalizedBigrams),
+          Object.values(sample.normalizedBigrams),
+        );
+        return noteDist * 0.6 + bigramDist * 0.4;
+      });
+      distances.sort((a, b) => a - b);
+      const kNearestScore =
+        distances.slice(0, Math.min(k, distances.length)).reduce((s, d) => s + 1 / (1 + d), 0) / k;
+      const confidence = Math.max(0, Math.min(100, kNearestScore * 100));
+      if (kNearestScore > best.score) {
+        best = { name: `${ragaName} (trained)`, score: kNearestScore, confidence };
       }
     }
-    return best;
+    return best.score > 0 ? best : null;
   };
 
   const detectRagaLoop = () => {
