@@ -38,6 +38,29 @@
       </div>
     </div>
 
+    <div class="result-card">
+      <h2>Train Model with Audio Files</h2>
+      <p>Upload Carnatic music recordings (MP3, WAV, MP4, M4A) and label them with ragas to train the model.</p>
+      <p><strong>Tips:</strong> Use clear recordings with prominent melody. Files should be at least 10 seconds long for best results.</p>
+      <div class="model-training">
+        <select id="trainingRagaSelect">
+          <option value="Shankarabharanam">Shankarabharanam</option>
+          <option value="Kalyani">Kalyani</option>
+          <option value="Mohanam">Mohanam</option>
+          <option value="Kambhoji">Kambhoji</option>
+          <option value="Todi">Todi</option>
+          <option value="Hindolam">Hindolam</option>
+        </select>
+        <div class="file-upload">
+          <input type="file" id="audioFileInput" accept="audio/wav,audio/mpeg,audio/mp4,audio/x-m4a,video/mp4,audio/*" />
+          <button id="processTrainBtn">Process & Train</button>
+        </div>
+        <button id="resetModelBtn">Reset Model</button>
+        <p class="training-status" id="trainingStatus">Ready to train model.</p>
+        <p class="trained-ragas" id="trainedRagas">Trained ragas: None</p>
+      </div>
+    </div>
+
     <div class="notes">
       <p><strong>Note:</strong> This app uses the browser Speech Recognition API. Use Chrome or Edge for best support.</p>
       <p>Choose Telugu to recognize Telugu speech as `te-IN`.</p>

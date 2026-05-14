@@ -129,6 +129,8 @@ export default function App() {
   const [selectedTrainingRaga, setSelectedTrainingRaga] = useState(supportedRagas[0].name);
   const [isModelTraining, setIsModelTraining] = useState(false);
   const [modelTrainingStatus, setModelTrainingStatus] = useState('Ready to train model.');
+  const [uploadedFile, setUploadedFile] = useState(null);
+  const [isProcessingFile, setIsProcessingFile] = useState(false);
   const [trainedModels, setTrainedModels] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem('carnatic-trained-models') || '{}');
@@ -138,9 +140,6 @@ export default function App() {
   });
   const trainingRef = useRef(false);
   const tonicHistoryRef = useRef([]);
-  const modelTrainingRef = useRef(false);
-  const modelTrainingLabelRef = useRef(null);
-  const modelTrainingHistoryRef = useRef([]);
   const audioContextRef = useRef(null);
   const analyserRef = useRef(null);
   const streamRef = useRef(null);
@@ -241,8 +240,6 @@ export default function App() {
     setIsRagaListening(false);
     setIsTraining(false);
     trainingRef.current = false;
-    modelTrainingRef.current = false;
-    modelTrainingLabelRef.current = null;
     setRagaStatus('Raga detection stopped.');
     setRagaText('Detected raga will appear here after you sing.');
   };
@@ -296,6 +293,96 @@ export default function App() {
       sum += ((a[i] || 0) - (b[i] || 0)) ** 2;
     }
     return Math.sqrt(sum);
+  };
+
+  const processAudioFile = async (file) => {
+    setIsProcessingFile(true);
+    setModelTrainingStatus('Processing audio file...');
+
+    try {
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      const arrayBuffer = await file.arrayBuffer();
+      const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+
+      const analyser = audioContext.createAnalyser();
+      analyser.fftSize = 2048;
+
+      const source = audioContext.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(analyser);
+
+      const noteClasses = [];
+      const sampleRate = audioContext.sampleRate;
+      const duration = audioBuffer.duration;
+      const stepSize = 0.1; // Process every 100ms
+      const totalSteps = Math.floor(duration / stepSize);
+
+      for (let i = 0; i < totalSteps; i += 1) {
+        const startTime = i * stepSize;
+        const endTime = Math.min((i + 1) * stepSize, duration);
+
+        // Get audio data for this time slice
+        const frameCount = Math.floor((endTime - startTime) * sampleRate);
+        const buffer = new Float32Array(analyser.fftSize);
+
+        // Simple approach: process the entire buffer at once
+        // For better accuracy, we'd need to process in real-time chunks
+        const channelData = audioBuffer.getChannelData(0);
+        const startSample = Math.floor(startTime * sampleRate);
+        const endSample = Math.floor(endTime * sampleRate);
+
+        for (let j = 0; j < analyser.fftSize && startSample + j < endSample; j += 1) {
+          buffer[j] = channelData[startSample + j] || 0;
+        }
+
+        const frequency = autoCorrelate(buffer, sampleRate);
+        if (frequency > 80 && frequency < 2000) { // Filter reasonable vocal range
+          const noteClass = relativePitchClass(frequency, tonicFrequency);
+          noteClasses.push(noteClass);
+        }
+      }
+
+      audioContext.close();
+
+      if (noteClasses.length < 20) {
+        setModelTrainingStatus('Not enough notes detected in the file. Try a longer or clearer recording.');
+        setIsProcessingFile(false);
+        return null;
+      }
+
+      setModelTrainingStatus(`Extracted ${noteClasses.length} notes from file.`);
+      setIsProcessingFile(false);
+      return noteClasses;
+
+    } catch (error) {
+      setModelTrainingStatus(`Error processing file: ${error.message}`);
+      setIsProcessingFile(false);
+      return null;
+    }
+  };
+
+  const handleFileUpload = (event) => {
+    const file = event.target.files[0];
+    if (file && file.type.startsWith('audio/')) {
+      setUploadedFile(file);
+      setModelTrainingStatus(`File "${file.name}" selected. Click "Process & Train" to extract notes.`);
+    } else {
+      setModelTrainingStatus('Please select a valid audio file.');
+    }
+  };
+
+  const processAndTrain = async () => {
+    if (!uploadedFile) {
+      setModelTrainingStatus('Please select an audio file first.');
+      return;
+    }
+
+    const noteClasses = await processAudioFile(uploadedFile);
+    if (noteClasses) {
+      saveTrainedModel(selectedTrainingRaga, noteClasses);
+      setModelTrainingStatus(`Successfully trained model with "${uploadedFile.name}" for ${selectedTrainingRaga}.`);
+      setUploadedFile(null);
+    }
   };
 
   const inferTrainedRaga = (noteClasses) => {
@@ -360,15 +447,6 @@ export default function App() {
       if (noteHistoryRef.current.length > 120) {
         noteHistoryRef.current.shift();
       }
-      if (modelTrainingRef.current) {
-        modelTrainingHistoryRef.current.push(noteClass);
-        if (modelTrainingHistoryRef.current.length > 240) {
-          modelTrainingHistoryRef.current.shift();
-        }
-        setModelTrainingStatus(
-          `Training ${modelTrainingLabelRef.current}: ${modelTrainingHistoryRef.current.length} notes collected.`,
-        );
-      }
       const trainedRaga = inferTrainedRaga(noteHistoryRef.current);
       const raga = trainedRaga || inferRaga(noteHistoryRef.current);
       setRagaStatus(`Detected note: ${scaleNoteName(noteClass)} (${frequency.toFixed(1)} Hz)`);
@@ -431,31 +509,6 @@ export default function App() {
     startRagaDetection(true);
   };
 
-  const toggleModelTraining = () => {
-    if (isModelTraining) {
-      modelTrainingRef.current = false;
-      setIsModelTraining(false);
-      if (modelTrainingHistoryRef.current.length >= 20) {
-        saveTrainedModel(selectedTrainingRaga, modelTrainingHistoryRef.current);
-        setModelTrainingStatus(`Saved training sample for ${selectedTrainingRaga}.`);
-      } else {
-        setModelTrainingStatus('Training canceled; not enough notes collected.');
-      }
-      modelTrainingHistoryRef.current = [];
-      stopRagaDetection();
-      return;
-    }
-    if (isRagaListening) {
-      stopRagaDetection();
-    }
-    modelTrainingLabelRef.current = selectedTrainingRaga;
-    modelTrainingHistoryRef.current = [];
-    modelTrainingRef.current = true;
-    setIsModelTraining(true);
-    setModelTrainingStatus(`Training ${selectedTrainingRaga}: sing notes now.`);
-    startRagaDetection(false);
-  };
-
   return (
     <div className="app-shell">
       <div className="card">
@@ -489,6 +542,8 @@ export default function App() {
             </span>
           </div>
           <div className="model-training">
+            <h3>Train Model with Audio Files</h3>
+            <p>Upload Carnatic music recordings (MP3, WAV, MP4, M4A) and label them with ragas to train the model.</p>
             <select value={selectedTrainingRaga} onChange={(event) => setSelectedTrainingRaga(event.target.value)}>
               {supportedRagas.map((raga) => (
                 <option key={raga.name} value={raga.name}>
@@ -496,9 +551,21 @@ export default function App() {
                 </option>
               ))}
             </select>
-            <button type="button" onClick={toggleModelTraining} disabled={!supported}>
-              {isModelTraining ? 'Stop Model Training' : 'Start Model Training'}
-            </button>
+            <div className="file-upload">
+              <input
+                type="file"
+                accept="audio/wav,audio/mpeg,audio/mp4,audio/x-m4a,video/mp4,audio/*"
+                onChange={handleFileUpload}
+                disabled={isProcessingFile}
+              />
+              <button
+                type="button"
+                onClick={processAndTrain}
+                disabled={!uploadedFile || isProcessingFile}
+              >
+                {isProcessingFile ? 'Processing...' : 'Process & Train'}
+              </button>
+            </div>
             <button type="button" onClick={clearTrainedModels} disabled={!Object.keys(trainedModels).length}>
               Reset Model
             </button>
